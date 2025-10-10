@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*- 
 
 """
 Este arquivo combina a lógica de extração de frames (originalmente em extrator_frame.py)
@@ -15,9 +15,10 @@ import re
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QTextEdit, QFileDialog, QMessageBox,
-    QSlider, QListWidget
+    QSlider, QListWidget, QGridLayout, QStyle
 )
 from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtGui import QGuiApplication
 
 # ==============================================================================
 # --- Lógica de Extração de Frames (do extrator_frame.py) ---
@@ -187,7 +188,7 @@ Ocorreu um erro ao extrair frame em {random_timestamp:.2f}s.""")
             logger_callback(f"Ocorreu um erro inesperado ao extrair frame: {e}")
 
     logger_callback(f"""
-Extração aleatória concluída. {extracted_count} de {num_frames} frames salvos em: {os.path.abspath(new_output_dir)}""")
+Extração aleatória concluída. {extracted_count} de {num_frames} frames salvos em: {os.path.abspath(new_output_dir)}   """)
 
 # ==============================================================================
 # --- Interface Gráfica (do gui_pyside.py) ---
@@ -195,49 +196,58 @@ Extração aleatória concluída. {extracted_count} de {num_frames} frames salvo
 
 DARK_STYLESHEET = """
     QWidget {
-        background-color: #2E2E2E;
-        color: #FFFFFF;
+        background-color: rgb(46, 46, 46);
+        color: rgb(255, 255, 255);
     }
     QLineEdit {
-        background-color: #3E3E3E;
-        border: 1px solid #555555;
-        padding: 5px;
+        background-color: rgb(62, 62, 62);
+        border: none;
+        padding: 5;
+        border-radius: 8px;
     }
     QPushButton {
-        background-color: #555555;
-        border: 1px solid #666666;
-        padding: 5px;
+        background-color: rgb(85, 85, 85);
+        border: none;
+        padding: 5;
+        border-radius: 8px;
     }
     QPushButton:hover {
-        background-color: #666666;
+        background-color: rgb(102, 102, 102);
     }
     QPushButton:pressed {
-        background-color: #777777;
+        background-color: rgb(119, 119, 119);
     }
     QTextEdit {
-        background-color: #1E1E1E;
-        border: 1px solid #555555;
+        background-color: rgb(30, 30, 30);
+        border: none;
+        border-radius: 8px;
     }
     QLabel {
-        background-color: #2E2E2E;
+        background-color: rgb(46, 46, 46);
     }
     QSlider::groove:horizontal {
-        border: 1px solid #bbb;
-        background: white;
-        height: 10px;
-        border-radius: 4px;
+        border: none;
+        background: rgb(255, 255, 255);
+        height: 10;
+        border-radius: 4;
     }
     QSlider::handle:horizontal {
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #eee, stop:1 #ccc);
-        border: 1px solid #777;
-        width: 18px;
-        margin: -2px 0;
-        border-radius: 4px;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgb(238, 238, 238), stop:1 rgb(204, 204, 204));
+        border: none;
+        width: 18;
+        margin: -2 0;
+        border-radius: 4;
     }
     QListWidget {
-        background-color: #3E3E3E;
-        border: 1px solid #555555;
+        background-color: rgb(62, 62, 62);
+        border: none;
+        border-radius: 8px;
     }
+    QPushButton#add_button, QPushButton#remove_button, QPushButton#clear_button {
+        font-size: 16px;
+        font-weight: bold;
+    }
+
 """
 
 class Worker(QObject):
@@ -270,7 +280,7 @@ class App(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("Extrator de Frames")
-        self.setGeometry(100, 100, 700, 600)
+        self.setGeometry(100, 100, 800, 600)
         self.setStyleSheet(DARK_STYLESHEET)
 
         self.central_widget = QWidget()
@@ -282,6 +292,7 @@ class App(QMainWindow):
         self.stop_event = None
         self.worker_thread = None
         self.video_queue = []
+        self.is_extracting = False
 
         self.create_widgets()
         self.load_paths()
@@ -308,62 +319,102 @@ class App(QMainWindow):
             json.dump(config, f, indent=4)
 
     def create_widgets(self):
-        # Video Queue
-        self.layout.addWidget(QLabel("Fila de Vídeos:"))
+        # --- Layout Superior (Fila e Log) ---
+        top_layout = QHBoxLayout()
+
+        # Painel da Fila (à esquerda)
+        queue_panel = QWidget()
+        queue_layout = QVBoxLayout(queue_panel)
+        queue_layout.setContentsMargins(0, 0, 0, 0)
+        queue_layout.setSpacing(0)
+        queue_layout.addWidget(QLabel("Fila de Extração:"))
+
+        # Container para a lista e os botões sobrepostos
+        list_container = QWidget()
+        grid_layout = QGridLayout(list_container)
+        grid_layout.setContentsMargins(0, 0, 0, 0)
+
         self.video_list_widget = QListWidget()
-        self.layout.addWidget(self.video_list_widget)
+        grid_layout.addWidget(self.video_list_widget, 0, 0)
 
-        queue_buttons_layout = QHBoxLayout()
-        add_videos_btn = QPushButton("Adicionar Vídeos")
+        # Container para os botões
+        buttons_container = QWidget()
+        buttons_container.setAttribute(Qt.WA_TranslucentBackground)
+        buttons_layout = QVBoxLayout(buttons_container)
+        buttons_layout.setContentsMargins(0, 0, 5, 5) # Margem para afastar da borda
+
+        # Botões com ícones
+        add_videos_btn = QPushButton("+")
+        add_videos_btn.setObjectName("add_button")
+        add_videos_btn.setToolTip("Adicionar vídeos à fila")
         add_videos_btn.clicked.connect(self.add_videos)
-        queue_buttons_layout.addWidget(add_videos_btn)
+        add_videos_btn.setFixedSize(30, 30) # Tamanho compacto
 
-        remove_video_btn = QPushButton("Remover Selecionado")
+        remove_video_btn = QPushButton("-")
+        remove_video_btn.setObjectName("remove_button")
+        remove_video_btn.setToolTip("Remover item selecionado")
         remove_video_btn.clicked.connect(self.remove_selected_video)
-        queue_buttons_layout.addWidget(remove_video_btn)
+        remove_video_btn.setFixedSize(30, 30)
 
-        clear_queue_btn = QPushButton("Limpar Fila")
+        clear_queue_btn = QPushButton("X")
+        clear_queue_btn.setObjectName("clear_button")
+        clear_queue_btn.setToolTip("Limpar toda a fila")
         clear_queue_btn.clicked.connect(self.clear_queue)
-        queue_buttons_layout.addWidget(clear_queue_btn)
-        self.layout.addLayout(queue_buttons_layout)
+        clear_queue_btn.setFixedSize(30, 30)
 
-        # Output Directory
-        self.layout.addWidget(QLabel("Diretório de Saída:"))
-        output_layout = QHBoxLayout()
+        buttons_layout.addWidget(add_videos_btn)
+        buttons_layout.addWidget(remove_video_btn)
+        buttons_layout.addWidget(clear_queue_btn)
+        
+        grid_layout.addWidget(buttons_container, 0, 0, Qt.AlignBottom | Qt.AlignRight)
+        queue_layout.addWidget(list_container)
+
+        # Painel do Log (à direita)
+        log_panel = QWidget()
+        log_layout = QVBoxLayout(log_panel)
+        log_layout.addWidget(QLabel("Log da Extração:"))
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        log_layout.addWidget(self.log_text)
+
+        top_layout.addWidget(queue_panel, 7)  # 70% da largura
+        top_layout.addWidget(log_panel, 3)    # 30% da largura
+        self.layout.addLayout(top_layout)
+
+        # --- Caminho de Saída ---
+        output_dir_layout = QHBoxLayout()
+        output_dir_layout.addWidget(QLabel("Caminho de Saída:"))
         self.output_dir_input = QLineEdit()
-        output_layout.addWidget(self.output_dir_input)
+        output_dir_layout.addWidget(self.output_dir_input)
         browse_output_btn = QPushButton("Procurar...")
         browse_output_btn.clicked.connect(self.browse_output_dir)
-        output_layout.addWidget(browse_output_btn)
-        self.layout.addLayout(output_layout)
+        output_dir_layout.addWidget(browse_output_btn)
+        self.layout.addLayout(output_dir_layout)
 
-        # Number of Frames
-        settings_layout = QHBoxLayout()
-        settings_layout.addWidget(QLabel("Número de Frames a Extrair:"))
+        # --- Controles Inferiores (Botão Iniciar/Parar e Slider) ---
+        bottom_controls_layout = QHBoxLayout()
+
+        # Botão Iniciar/Parar
+        self.start_stop_button = QPushButton("Iniciar Extração")
+        self.start_stop_button.clicked.connect(self.toggle_extraction)
+        bottom_controls_layout.addWidget(self.start_stop_button)
+
+        # Slider de Frames
+        frames_layout = QHBoxLayout()
+        frames_layout.addWidget(QLabel("Frames a extrair:"))
         self.num_frames_slider = QSlider(Qt.Horizontal)
         self.num_frames_slider.setRange(1, 500)
         self.num_frames_slider.setValue(500)
-        settings_layout.addWidget(self.num_frames_slider)
-        self.num_frames_label = QLabel("500")
-        self.num_frames_slider.valueChanged.connect(lambda v: self.num_frames_label.setText(str(v)))
-        settings_layout.addWidget(self.num_frames_label)
-        self.layout.addLayout(settings_layout)
+        frames_layout.addWidget(self.num_frames_slider)
+        self.num_frames_input = QLineEdit("500")
+        self.num_frames_input.setFixedWidth(40)
+        self.num_frames_slider.valueChanged.connect(lambda v: self.num_frames_input.setText(str(v)))
+        self.num_frames_input.editingFinished.connect(self.update_slider_from_input)
+        frames_layout.addWidget(self.num_frames_input)
+        
+        bottom_controls_layout.addLayout(frames_layout)
+        self.layout.addLayout(bottom_controls_layout)
 
-        # Action Buttons
-        action_layout = QHBoxLayout()
-        self.run_button = QPushButton("Iniciar Extração")
-        self.run_button.clicked.connect(self.start_extraction_thread)
-        action_layout.addWidget(self.run_button)
-        self.stop_button = QPushButton("Parar Extração")
-        self.stop_button.clicked.connect(self.stop_extraction)
-        self.stop_button.setEnabled(False)
-        action_layout.addWidget(self.stop_button)
-        self.layout.addLayout(action_layout)
-
-        # Log
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self.layout.addWidget(self.log_text)
 
     def add_videos(self):
         paths, _ = QFileDialog.getOpenFileNames(self, "Selecione os arquivos de vídeo", "", "Arquivos de Vídeo (*.mp4 *.avi *.mkv *.mov);;Todos os arquivos (*.*)")
@@ -386,6 +437,19 @@ class App(QMainWindow):
 
     def log(self, message):
         self.log_text.append(message)
+
+    def update_slider_from_input(self):
+        try:
+            value = int(self.num_frames_input.text())
+            # Clamp the value to the slider's range
+            value = max(self.num_frames_slider.minimum(), min(value, self.num_frames_slider.maximum()))
+            
+            self.num_frames_slider.setValue(value)
+            self.num_frames_input.setText(str(value))
+
+        except ValueError:
+            # If the input is empty or not a number, reset to the slider's current value
+            self.num_frames_input.setText(str(self.num_frames_slider.value()))
 
     def check_ffmpeg_tools_on_startup(self):
         self.log("Verificando ferramentas FFmpeg...")
@@ -419,13 +483,20 @@ class App(QMainWindow):
                     QMessageBox.critical(self, "Erro", f"A pasta selecionada é inválida ou as ferramentas não puderam ser executadas.\n\nDetalhes: {error_msg}")
                     self.log("Falha ao verificar a pasta selecionada.")
 
+    def toggle_extraction(self):
+        if self.is_extracting:
+            self.stop_extraction()
+        else:
+            self.start_extraction()
+
     def stop_extraction(self):
         if self.stop_event:
             self.log("Sinal de parada enviado...")
             self.stop_event.set()
-            self.stop_button.setEnabled(False)
+            self.start_stop_button.setEnabled(False)
+            self.start_stop_button.setText("Parando...")
 
-    def start_extraction_thread(self):
+    def start_extraction(self):
         self.video_queue = [self.video_list_widget.item(i).text() for i in range(self.video_list_widget.count())]
         output_dir = self.output_dir_input.text()
 
@@ -441,10 +512,9 @@ class App(QMainWindow):
             return
 
         self.log_text.clear()
-        self.run_button.setEnabled(False)
-        self.run_button.setText("Extraindo...")
-        self.stop_button.setEnabled(True)
-
+        self.is_extracting = True
+        self.start_stop_button.setText("Parar Extração")
+        
         self.process_next_video()
 
     def process_next_video(self):
@@ -470,18 +540,32 @@ class App(QMainWindow):
         self.worker_thread.start()
 
     def on_extraction_finished(self, is_queue_finished=False):
+        # Se a parada foi solicitada, a fila não está 'concluída'
+        if self.stop_event and self.stop_event.is_set():
+             self.log("--- Extração interrompida ---")
+             is_queue_finished = True # Força a finalização
+
         if is_queue_finished:
             self.log("--- Fila de extração concluída ---")
-            self.run_button.setEnabled(True)
-            self.run_button.setText("Iniciar Extração")
-            self.stop_button.setEnabled(False)
+            self.is_extracting = False
+            self.start_stop_button.setEnabled(True)
+            self.start_stop_button.setText("Iniciar Extração")
             self.worker_thread = None
         else:
             self.process_next_video()
 
+
+
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
+    # Garantir política de arredondamento de scale factor em alto DPI antes de criar QApplication
+    try:
+        QGuiApplication.setHighDpiScaleFactorRoundingPolicy(QGuiApplication.PassThrough)
+    except Exception:
+        # fallback: algumas versões podem não expor a enum como PassThrough; ignore se não suportado
+        pass
+
     app = QApplication(sys.argv)
     window = App()
     window.show()
