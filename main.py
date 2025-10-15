@@ -20,6 +20,16 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QGuiApplication, QIcon
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
 # ==============================================================================
 # --- Lógica de Extração de Frames (do extrator_frame.py) ---
 # ==============================================================================
@@ -28,9 +38,42 @@ from PySide6.QtGui import QGuiApplication, QIcon
 if os.name == 'nt':
     _CREATE_NO_WINDOW = 0x08000000
     _startupinfo = subprocess.STARTUPINFO()
-    _startupinfo.dwFlags |= _CREATE_NO_WINDOW
+    # Não coloque CREATE_NO_WINDOW em dwFlags (dwFlags usa STARTF_* flags).
+    # Para ocultar a janela de console, use STARTF_USESHOWWINDOW e setar wShowWindow = SW_HIDE.
+    try:
+        _startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        _startupinfo.wShowWindow = subprocess.SW_HIDE
+    except Exception:
+        # Fallback: se algo falhar, mantenha startupinfo como None e use creationflags nas chamadas
+        _startupinfo = None
 else:
     _startupinfo = None
+
+
+def run_process(cmd, **kwargs):
+    """Wrapper para subprocess.run que aplica startupinfo e creationflags no Windows.
+    Usa o `_startupinfo` já configurado; quando necessário adiciona CREATE_NO_WINDOW como creationflags.
+    """
+    # Não importar subprocess aqui; já está importado no topo
+    creationflags = kwargs.pop('creationflags', None)
+    if os.name == 'nt':
+        # se não foi passado creationflags explicitamente, use CREATE_NO_WINDOW
+        if creationflags is None:
+            try:
+                creationflags = subprocess.CREATE_NO_WINDOW
+            except Exception:
+                creationflags = 0
+    else:
+        creationflags = 0
+
+    # passe startupinfo padrão se não fornecido
+    if 'startupinfo' not in kwargs and _startupinfo is not None:
+        kwargs['startupinfo'] = _startupinfo
+
+    if creationflags:
+        kwargs['creationflags'] = creationflags
+
+    return subprocess.run(cmd, **kwargs)
 
 CONFIG_FILE = "config.json"
 
@@ -73,7 +116,7 @@ def encontrar_ffmpeg_tools(caminho_custom=None):
                 exec_name = f"{nome}.exe" if os.name == 'nt' and not nome.endswith('.exe') else nome
                 full_path = os.path.join(caminho_a_verificar, exec_name)
                 if os.path.exists(full_path):
-                    subprocess.run([full_path, '-version'], check=True, capture_output=True, startupinfo=_startupinfo)
+                    run_process([full_path, '-version'], check=True, capture_output=True)
                     ferramentas[nome] = full_path
                 else:
                     error_log.append(f"'{exec_name}' não encontrado em '{caminho_a_verificar}'.")
@@ -90,7 +133,7 @@ def encontrar_ffmpeg_tools(caminho_custom=None):
         for nome in nomes:
             if not ferramentas[nome]:
                 try:
-                    subprocess.run([nome, '-version'], check=True, capture_output=True, startupinfo=_startupinfo)
+                    run_process([nome, '-version'], check=True, capture_output=True)
                     ferramentas[nome] = nome
                 except (subprocess.CalledProcessError, FileNotFoundError, PermissionError) as e:
                     error_log.append(f"'{nome}' não encontrado ou com erro no PATH do sistema: {e}")
@@ -107,7 +150,7 @@ def get_video_duration(video_path, ffprobe_path='ffprobe', logger_callback=print
         video_path
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=True, encoding='utf-8', errors='ignore', startupinfo=_startupinfo)
+        result = run_process(command, capture_output=True, text=True, check=True, encoding='utf-8', errors='ignore')
         return float(result.stdout.strip())
     except subprocess.CalledProcessError as e:
         logger_callback(f"Erro ao obter duração do vídeo com ffprobe: {e.stderr}")
@@ -170,7 +213,7 @@ def extrair_frames_aleatorios(video_path, output_dir, num_frames=1, ffmpeg_path=
 
         try:
             logger_callback(f"Extraindo frame aleatório em {random_timestamp:.2f}s para '{output_filepath}'")
-            subprocess.run(command_extraction, check=True, capture_output=True, text=True, encoding='utf-8', errors='ignore', startupinfo=_startupinfo)
+            run_process(command_extraction, check=True, capture_output=True, text=True, encoding='utf-8', errors='ignore')
             extracted_count += 1
         except subprocess.CalledProcessError as e:
             logger_callback(f"""
@@ -356,8 +399,8 @@ class App(QMainWindow):
         self.is_extracting = False
         self.currently_processing_path = None
 
-        self.pending_icon = QIcon("assets/pending.svg")
-        self.completed_icon = QIcon("assets/check_circle.svg")
+        self.pending_icon = QIcon(resource_path("assets/pending.svg"))
+        self.completed_icon = QIcon(resource_path("assets/check_circle.svg"))
 
         self.create_widgets()
         self.load_paths()
@@ -417,21 +460,21 @@ class App(QMainWindow):
         buttons_layout.setContentsMargins(0, 0, 5, 5) # Margem para afastar da borda
 
         # Botões com ícones
-        add_icon = QIcon("assets/add.svg")
+        add_icon = QIcon(resource_path("assets/add.svg"))
         add_videos_btn = QPushButton(add_icon, "")
         add_videos_btn.setObjectName("add_button")
         add_videos_btn.setToolTip("Adicionar vídeos à fila")
         add_videos_btn.clicked.connect(self.add_videos)
         add_videos_btn.setFixedSize(30, 30) # Tamanho compacto
 
-        remove_icon = QIcon("assets/close.svg")
+        remove_icon = QIcon(resource_path("assets/close.svg"))
         remove_video_btn = QPushButton(remove_icon, "")
         remove_video_btn.setObjectName("remove_button")
         remove_video_btn.setToolTip("Remover item selecionado")
         remove_video_btn.clicked.connect(self.remove_selected_video)
         remove_video_btn.setFixedSize(30, 30)
 
-        clear_icon = QIcon("assets/clear_all.svg")
+        clear_icon = QIcon(resource_path("assets/clear_all.svg"))
         clear_queue_btn = QPushButton(clear_icon, "")
         clear_queue_btn.setObjectName("clear_button")
         clear_queue_btn.setToolTip("Limpar toda a fila")
