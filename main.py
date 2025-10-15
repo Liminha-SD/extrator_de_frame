@@ -356,8 +356,8 @@ class App(QMainWindow):
         self.is_extracting = False
         self.currently_processing_path = None
 
-        self.pending_icon = QIcon("pending.svg")
-        self.completed_icon = QIcon("check_circle.svg")
+        self.pending_icon = QIcon("assets/pending.svg")
+        self.completed_icon = QIcon("assets/check_circle.svg")
 
         self.create_widgets()
         self.load_paths()
@@ -417,21 +417,21 @@ class App(QMainWindow):
         buttons_layout.setContentsMargins(0, 0, 5, 5) # Margem para afastar da borda
 
         # Botões com ícones
-        add_icon = QIcon("add.svg")
+        add_icon = QIcon("assets/add.svg")
         add_videos_btn = QPushButton(add_icon, "")
         add_videos_btn.setObjectName("add_button")
         add_videos_btn.setToolTip("Adicionar vídeos à fila")
         add_videos_btn.clicked.connect(self.add_videos)
         add_videos_btn.setFixedSize(30, 30) # Tamanho compacto
 
-        remove_icon = QIcon("close.svg")
+        remove_icon = QIcon("assets/close.svg")
         remove_video_btn = QPushButton(remove_icon, "")
         remove_video_btn.setObjectName("remove_button")
         remove_video_btn.setToolTip("Remover item selecionado")
         remove_video_btn.clicked.connect(self.remove_selected_video)
         remove_video_btn.setFixedSize(30, 30)
 
-        clear_icon = QIcon("clear_all.svg")
+        clear_icon = QIcon("assets/clear_all.svg")
         clear_queue_btn = QPushButton(clear_icon, "")
         clear_queue_btn.setObjectName("clear_button")
         clear_queue_btn.setToolTip("Limpar toda a fila")
