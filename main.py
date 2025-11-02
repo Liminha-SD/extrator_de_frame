@@ -16,6 +16,13 @@ try:
 except ImportError:
     print("PySide6 is not installed. Please install it using: pip install PySide6")
 
+try:
+    import tensorflow as tf
+    from tensorflow.keras.preprocessing import image
+    import numpy as np
+except ImportError:
+    print("TensorFlow is not installed. Please install it using: pip install tensorflow")
+
 import threading
 import json
 import subprocess
@@ -172,14 +179,55 @@ def get_video_duration(video_path, ffprobe_path='ffprobe', logger_callback=print
         logger_callback(f"Erro inesperado ao obter duração do vídeo: {e}")
         return None
 
-def extrair_frames_aleatorios(video_path, output_dir, num_frames=1, ffmpeg_path='ffmpeg', ffprobe_path='ffprobe', logger_callback=print, stop_event=None):
+def is_frame_good(model, frame_path, logger_callback):
+    """Classifica um frame como 'good' ou 'bad' usando um modelo Keras e retorna a confiança."""
+    try:
+        # Usar tf.keras.utils para garantir consistência com o treinamento
+        img = tf.keras.utils.load_img(
+            frame_path, target_size=(128, 128)
+        )
+        img_array = tf.keras.utils.img_to_array(img)
+        img_array = tf.expand_dims(img_array, 0) # Cria um lote (batch)
+
+        prediction = model.predict(img_array, verbose=0) # verbose=0 para não poluir o log
+        score = prediction[0][0]
+
+        if score > 0.5:
+            logger_callback(f"Predição para {os.path.basename(frame_path)}: GOOD ({score:.2f})")
+            return True
+        else:
+            logger_callback(f"Predição para {os.path.basename(frame_path)}: BAD ({score:.2f})")
+            return False
+            
+    except Exception as e:
+        logger_callback(f"Erro ao classificar o frame '{os.path.basename(frame_path)}': {e}")
+        return False
+
+def extrair_frames_aleatorios(video_path, output_dir, num_frames=1, ffmpeg_path='ffmpeg', ffprobe_path='ffprobe', keras_model_path=None, logger_callback=print, stop_event=None):
     """
-    Extrai um número especificado de frames aleatórios de um vídeo.
+    Extrai um número especificado de frames de um vídeo usando uma lógica de passes
+    para garantir que todos os frames salvos sejam validados como 'GOOD' por um modelo Keras.
     """
     if not os.path.exists(video_path):
         logger_callback(f"Erro: O arquivo de vídeo '{video_path}' não foi encontrado.")
         return
 
+    # --- Carregamento do Modelo ---
+    model = None
+    if keras_model_path and os.path.exists(keras_model_path):
+        try:
+            logger_callback(f"Carregando modelo Keras de: {keras_model_path}")
+            model = tf.keras.models.load_model(keras_model_path)
+            logger_callback("Modelo Keras carregado com sucesso.")
+        except Exception as e:
+            logger_callback(f"Erro ao carregar o modelo Keras: {e}")
+            logger_callback("A extração não pode continuar sem um modelo válido.")
+            return
+    elif keras_model_path:
+        logger_callback(f"Erro: O arquivo do modelo Keras não foi encontrado em '{keras_model_path}'.")
+        return
+
+    # --- Configuração dos Diretórios e Nomes ---
     video_name = os.path.splitext(os.path.basename(video_path))[0]
     new_output_dir = os.path.join(output_dir, video_name)
 
@@ -192,56 +240,102 @@ def extrair_frames_aleatorios(video_path, output_dir, num_frames=1, ffmpeg_path=
         logger_callback("Aviso: Não foi possível extrair 3 dígitos do nome do vídeo. Usando '000' como padrão.")
         video_digits = "000"
 
+    # --- Obtenção da Duração do Vídeo ---
     duration = get_video_duration(video_path, ffprobe_path, logger_callback)
     if duration is None:
-        logger_callback("Não foi possível determinar a duração do vídeo. Abortando extração aleatória.")
+        logger_callback("Não foi possível determinar a duração do vídeo. Abortando extração.")
         return
 
     logger_callback(f"Duração do vídeo: {duration:.2f} segundos.")
-    logger_callback(f"Extraindo {num_frames} frames aleatórios...")
+    logger_callback(f"Iniciando processo para obter {num_frames} frames validados...")
 
-    extracted_count = 0
-    for i in range(num_frames):
+    # --- Loop Principal de Extração e Validação ---
+    good_frames_count = 0
+    total_attempts = 0
+    max_total_attempts = num_frames * 10  # Limite de segurança para evitar loops infinitos
+    used_timestamps = set()
+
+    while good_frames_count < num_frames:
         if stop_event and stop_event.is_set():
             logger_callback("Extração interrompida pelo usuário.")
             break
-        
-        random_timestamp = random.uniform(0, duration)
-        
-        output_filename = f"{video_digits}-{i+1}.jpg"
-        output_filepath = os.path.join(new_output_dir, output_filename)
 
-        command_extraction = [
-            ffmpeg_path,
-            '-ss', str(random_timestamp),
-            '-i', video_path,
-            '-vframes', '1',
-            '-q:v', '2',
-            '-y',
-            output_filepath
-        ]
+        if total_attempts >= max_total_attempts:
+            logger_callback(f"Atingido o limite máximo de {max_total_attempts} tentativas. Interrompendo.")
+            break
 
-        try:
-            logger_callback(f"Extraindo frame aleatório em {random_timestamp:.2f}s para '{output_filepath}'")
-            run_process(command_extraction, check=True, capture_output=True, text=True, encoding='utf-8', errors='ignore')
-            extracted_count += 1
-        except subprocess.CalledProcessError as e:
-            logger_callback(f"""
-Ocorreu um erro ao extrair frame em {random_timestamp:.2f}s.""")
-            logger_callback(f"Comando: {' '.join(e.cmd)}")
-            if e.stdout:
-                logger_callback(f"""--- Saída (stdout) ---
-{e.stdout}""")
-            if e.stderr:
-                logger_callback(f"""--- Erro (stderr) ---
-{e.stderr}""")
+        frames_needed = num_frames - good_frames_count
+        logger_callback(f"--- Passando: Faltam {frames_needed} frames. Tentativa #{total_attempts + 1} ---")
+
+        # --- 1. Extrair Novos Frames ---
+        extracted_this_pass = []
+        for _ in range(frames_needed):
+            if total_attempts >= max_total_attempts:
+                break
+            
+            total_attempts += 1
+            random_timestamp = random.uniform(0, duration)
+            # Evitar extrair o mesmo frame repetidamente
+            while random_timestamp in used_timestamps:
+                random_timestamp = random.uniform(0, duration)
+            used_timestamps.add(random_timestamp)
+
+            temp_filename = f"temp_{total_attempts}.jpg"
+            temp_filepath = os.path.join(new_output_dir, temp_filename)
+
+            command_extraction = [
+                ffmpeg_path, '-ss', str(random_timestamp), '-i', video_path,
+                '-vframes', '1', '-q:v', '2', '-y', temp_filepath
+            ]
+
+            try:
+                run_process(command_extraction, check=True, capture_output=True, text=True, encoding='utf-8', errors='ignore')
+                extracted_this_pass.append(temp_filepath)
+            except subprocess.CalledProcessError as e:
+                logger_callback(f"Erro ao extrair frame em {random_timestamp:.2f}s. Detalhes: {e.stderr}")
+            except Exception as e:
+                logger_callback(f"Erro inesperado ao extrair frame: {e}")
+
+        # --- 2. Validar Frames Extraídos Neste Passe ---
+        if not extracted_this_pass:
+            logger_callback("Nenhum frame foi extraído neste passe. Tentando novamente.")
+            continue
+
+        logger_callback(f"Validando {len(extracted_this_pass)} frames extraídos...")
+        good_frames_in_pass = []
+        for frame_path in extracted_this_pass:
+            if model:
+                is_good = is_frame_good(model, frame_path, logger_callback)
+                if is_good:
+                    good_frames_in_pass.append(frame_path)
+                else:
+                    logger_callback(f"Frame '{os.path.basename(frame_path)}' validado como 'BAD'. Deletando.")
+                    try:
+                        os.remove(frame_path)
+                    except OSError as e:
+                        logger_callback(f"Erro ao deletar frame ruim: {e}")
             else:
-                logger_callback("Nenhuma saída de erro específica foi capturada (stderr estava vazio).")
-        except Exception as e:
-            logger_callback(f"Ocorreu um erro inesperado ao extrair frame: {e}")
+                # Se não houver modelo, todos os frames são considerados bons
+                good_frames_in_pass.append(frame_path)
+
+        # --- 3. Renomear Frames Bons e Atualizar Contagem ---
+        logger_callback(f"{len(good_frames_in_pass)} frames validados como 'GOOD' neste passe.")
+        for good_frame_path in good_frames_in_pass:
+            good_frames_count += 1
+            new_filename = f"{video_digits}-{good_frames_count}.jpg"
+            final_filepath = os.path.join(new_output_dir, new_filename)
+            try:
+                os.rename(good_frame_path, final_filepath)
+                logger_callback(f"Frame salvo como: {new_filename}")
+            except OSError as e:
+                logger_callback(f"Erro ao renomear frame bom: {e}")
+                good_frames_count -= 1 # Desfaz o incremento se a renomeação falhar
 
     logger_callback(f"""
-Extração aleatória concluída. {extracted_count} de {num_frames} frames salvos em: {os.path.abspath(new_output_dir)}   """)
+Processo de extração concluído.
+Total de frames bons salvos: {good_frames_count} de {num_frames}.
+Salvos em: {os.path.abspath(new_output_dir)}
+""")
 
 # ==============================================================================
 # --- Interface Gráfica (do gui_pyside.py) ---
@@ -369,13 +463,14 @@ class Worker(QObject):
     log_signal = Signal(str)
     finished_signal = Signal()
 
-    def __init__(self, video_path, output_dir, num_frames, ffmpeg_path, ffprobe_path, stop_event):
+    def __init__(self, video_path, output_dir, num_frames, ffmpeg_path, ffprobe_path, keras_model_path, stop_event):
         super().__init__()
         self.video_path = video_path
         self.output_dir = output_dir
         self.num_frames = num_frames
         self.ffmpeg_path = ffmpeg_path
         self.ffprobe_path = ffprobe_path
+        self.keras_model_path = keras_model_path
         self.stop_event = stop_event
 
     def run(self):
@@ -385,6 +480,7 @@ class Worker(QObject):
             num_frames=self.num_frames,
             ffmpeg_path=self.ffmpeg_path,
             ffprobe_path=self.ffprobe_path,
+            keras_model_path=self.keras_model_path,
             logger_callback=self.log_signal.emit,
             stop_event=self.stop_event
         )
@@ -404,6 +500,7 @@ class App(QMainWindow):
 
         self.ffmpeg_path = ""
         self.ffprobe_path = ""
+        self.keras_file_path = ""
         self.stop_event = None
         self.worker_thread = None
         self.is_extracting = False
@@ -440,6 +537,7 @@ class App(QMainWindow):
             with open("config.json", "r") as f:
                 config = json.load(f)
                 self.output_dir_input.setText(config.get("output_dir", ""))
+                self.keras_file_input.setText(config.get("keras_file_path", ""))
         except (FileNotFoundError, json.JSONDecodeError):
             pass
 
@@ -451,6 +549,7 @@ class App(QMainWindow):
             config = {}
 
         config["output_dir"] = self.output_dir_input.text()
+        config["keras_file_path"] = self.keras_file_input.text()
 
         with open("config.json", "w") as f:
             json.dump(config, f, indent=4)
@@ -521,6 +620,16 @@ class App(QMainWindow):
         top_layout.addWidget(queue_panel, 1)  # 50% da largura
         self.layout.addLayout(top_layout)
 
+        # --- Caminho do Arquivo Keras ---
+        keras_file_layout = QHBoxLayout()
+        keras_file_layout.addWidget(QLabel("Arquivo Keras:"))
+        self.keras_file_input = QLineEdit()
+        keras_file_layout.addWidget(self.keras_file_input)
+        browse_keras_btn = QPushButton("Procurar...")
+        browse_keras_btn.clicked.connect(self.browse_keras_file)
+        keras_file_layout.addWidget(browse_keras_btn)
+        self.layout.addLayout(keras_file_layout)
+
         # --- Caminho de Saída ---
         output_dir_layout = QHBoxLayout()
         output_dir_layout.addWidget(QLabel("Caminho de Saída:"))
@@ -576,6 +685,12 @@ class App(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "Selecione o diretório de saída")
         if path:
             self.output_dir_input.setText(path)
+            self.save_paths()
+
+    def browse_keras_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Selecione o arquivo Keras", "", "Keras Files (*.h5 *.keras);;All Files (*.*)")
+        if path:
+            self.keras_file_input.setText(path)
             self.save_paths()
 
     def log(self, message):
@@ -677,6 +792,12 @@ class App(QMainWindow):
         if not output_dir:
             QMessageBox.critical(self, "Erro", "Por favor, especifique o diretório de saída.")
             return
+
+        keras_model_path = self.keras_file_input.text()
+        if keras_model_path and not os.path.exists(keras_model_path):
+            QMessageBox.critical(self, "Erro", f"O arquivo do modelo Keras não foi encontrado em: {keras_model_path}")
+            return
+
         if not self.ffmpeg_path or not self.ffprobe_path:
             QMessageBox.critical(self, "Erro", "Caminhos para FFmpeg/FFprobe não definidos.")
             self.prompt_for_ffmpeg_folder()
@@ -711,6 +832,7 @@ class App(QMainWindow):
             self.num_frames_slider.value(),
             self.ffmpeg_path,
             self.ffprobe_path,
+            self.keras_file_input.text(),
             self.stop_event
         )
         self.worker_thread = threading.Thread(target=self.worker.run)
