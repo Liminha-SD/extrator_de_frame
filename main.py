@@ -5,9 +5,18 @@ Este arquivo combina a lógica de extração de frames (originalmente em extrato
 com a interface gráfica do usuário (originalmente em gui_pyside.py).
 """
 
-import sys
-import threading
 import os
+import sys
+
+try:
+    import PySide6
+    pyside6_path = PySide6.__path__[0]
+    plugins_path = os.path.join(pyside6_path, "Qt", "plugins")
+    os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = plugins_path
+except ImportError:
+    print("PySide6 is not installed. Please install it using: pip install PySide6")
+
+import threading
 import json
 import subprocess
 import random
@@ -19,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QGuiApplication, QIcon
+from PySide6.QtSvg import QSvgRenderer
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -399,8 +409,27 @@ class App(QMainWindow):
         self.is_extracting = False
         self.currently_processing_path = None
 
+        # Verificação e carregamento dos ícones
+        icon_files = {
+            'pending': 'assets/pending.svg',
+            'completed': 'assets/check_circle.svg'
+        }
+        
+        for icon_name, icon_path in icon_files.items():
+            full_path = resource_path(icon_path)
+            if not os.path.exists(full_path):
+                print(f"Erro: Arquivo de ícone não encontrado: {full_path}")
+            else:
+                print(f"Carregando ícone: {full_path}")
+        
         self.pending_icon = QIcon(resource_path("assets/pending.svg"))
         self.completed_icon = QIcon(resource_path("assets/check_circle.svg"))
+        
+        # Verificar se os ícones foram carregados corretamente
+        if self.pending_icon.isNull():
+            print("Erro: Não foi possível carregar o ícone pending.svg")
+        if self.completed_icon.isNull():
+            print("Erro: Não foi possível carregar o ícone check_circle.svg")
 
         self.create_widgets()
         self.load_paths()
@@ -574,19 +603,40 @@ class App(QMainWindow):
 
     def check_ffmpeg_tools_on_startup(self):
         self.log("Verificando ferramentas FFmpeg...")
-        tools, error_msg = encontrar_ffmpeg_tools()
-        if tools["ffmpeg"] and tools["ffprobe"]:
+        
+        # Prioridade 1: Verificar pasta 'bin' local (para instalador)
+        # Caso 1: bin/ffmpeg.exe (padrão, dentro da pasta do app)
+        bundled_bin_path = resource_path('bin')
+        self.log(f"Tentando carregar FFmpeg da pasta local padrão: {bundled_bin_path}")
+        tools, error_msg = encontrar_ffmpeg_tools(caminho_custom=bundled_bin_path)
+
+        # Caso 2: ../bin/ffmpeg.exe (alternativo, um nível acima)
+        if not (tools.get("ffmpeg") and tools.get("ffprobe")):
+            # resource_path('.') aponta para a pasta do executável
+            alt_bundled_bin_path = os.path.abspath(os.path.join(resource_path('.'), '..', 'bin'))
+            self.log(f"Tentando carregar FFmpeg de um diretório acima: {alt_bundled_bin_path}")
+            tools, error_msg_alt = encontrar_ffmpeg_tools(caminho_custom=alt_bundled_bin_path)
+            if error_msg_alt and error_msg_alt not in error_msg:
+                error_msg += f"\n{error_msg_alt}"
+
+        # Se não encontrou em nenhum local empacotado, tenta o caminho salvo ou o PATH do sistema
+        if not (tools.get("ffmpeg") and tools.get("ffprobe")):
+            self.log("FFmpeg não encontrado nas pastas locais. Verificando caminhos salvos e PATH do sistema...")
+            tools, error_msg_fallback = encontrar_ffmpeg_tools()
+            if error_msg_fallback and error_msg_fallback not in error_msg:
+                error_msg += f"\n{error_msg_fallback}"
+
+        if tools.get("ffmpeg") and tools.get("ffprobe"):
             self.ffmpeg_path = tools["ffmpeg"]
             self.ffprobe_path = tools["ffprobe"]
             ffmpeg_dir = os.path.dirname(tools["ffmpeg"])
-            if ffmpeg_dir == "":
-                self.log("FFmpeg e FFprobe encontrados no PATH do sistema.")
-            else:
-                self.log(f"FFmpeg e FFprobe carregados do caminho salvo: {ffmpeg_dir}")
+            self.log(f"FFmpeg e FFprobe carregados com sucesso de: {ffmpeg_dir}")
         else:
-            self.log("Aviso: FFmpeg/FFprobe não encontrados ou o caminho salvo é inválido.")
+            self.log("Aviso: FFmpeg/FFprobe não encontrados em nenhum local verificado.")
             if error_msg:
-                self.log(f"Detalhes: {error_msg}")
+                # Limpar mensagens duplicadas
+                errors = list(dict.fromkeys(error_msg.strip().split('\n')))
+                self.log(f"Detalhes: {' | '.join(errors)}")
             self.prompt_for_ffmpeg_folder()
 
     def prompt_for_ffmpeg_folder(self):
@@ -707,6 +757,16 @@ if __name__ == "__main__":
         pass
 
     app = QApplication(sys.argv)
+
+    # Adicionar o caminho para os plugins de imagem, incluindo SVG
+    try:
+        import PySide6
+        pyside6_path = PySide6.__path__[0]
+        QApplication.addLibraryPath(os.path.join(pyside6_path, "Qt", "plugins", "iconengines"))
+        QApplication.addLibraryPath(os.path.join(pyside6_path, "Qt", "plugins", "imageformats"))
+    except ImportError:
+        pass
+
     window = App()
     window.show()
     sys.exit(app.exec())
