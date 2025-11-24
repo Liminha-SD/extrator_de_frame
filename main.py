@@ -31,7 +31,7 @@ import re
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QTextEdit, QFileDialog, QMessageBox,
-    QSlider, QListWidget, QListWidgetItem, QGridLayout, QStyle
+    QSlider, QListWidget, QListWidgetItem, QGridLayout, QStyle, QCheckBox
 )
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QGuiApplication, QIcon
@@ -252,8 +252,9 @@ def extrair_frames_aleatorios(video_path, output_dir, num_frames=1, ffmpeg_path=
     # --- Loop Principal de Extração e Validação ---
     good_frames_count = 0
     total_attempts = 0
-    max_total_attempts = num_frames * 10  # Limite de segurança para evitar loops infinitos
+    max_total_attempts = 10000  # Limite de segurança para evitar loops infinitos
     used_timestamps = set()
+    extraction_batch_size = 500  # Extrair em lotes de 500
 
     while good_frames_count < num_frames:
         if stop_event and stop_event.is_set():
@@ -265,11 +266,11 @@ def extrair_frames_aleatorios(video_path, output_dir, num_frames=1, ffmpeg_path=
             break
 
         frames_needed = num_frames - good_frames_count
-        logger_callback(f"--- Passando: Faltam {frames_needed} frames. Tentativa #{total_attempts + 1} ---")
+        logger_callback(f"--- Passando: Faltam {frames_needed} frames. Tentando extrair um lote de {extraction_batch_size} ---")
 
         # --- 1. Extrair Novos Frames ---
         extracted_this_pass = []
-        for _ in range(frames_needed):
+        for _ in range(extraction_batch_size):
             if total_attempts >= max_total_attempts:
                 break
             
@@ -321,15 +322,23 @@ def extrair_frames_aleatorios(video_path, output_dir, num_frames=1, ffmpeg_path=
         # --- 3. Renomear Frames Bons e Atualizar Contagem ---
         logger_callback(f"{len(good_frames_in_pass)} frames validados como 'GOOD' neste passe.")
         for good_frame_path in good_frames_in_pass:
-            good_frames_count += 1
-            new_filename = f"{video_digits}-{good_frames_count}.jpg"
-            final_filepath = os.path.join(new_output_dir, new_filename)
-            try:
-                os.rename(good_frame_path, final_filepath)
-                logger_callback(f"Frame salvo como: {new_filename}")
-            except OSError as e:
-                logger_callback(f"Erro ao renomear frame bom: {e}")
-                good_frames_count -= 1 # Desfaz o incremento se a renomeação falhar
+            if good_frames_count < num_frames:
+                good_frames_count += 1
+                new_filename = f"{video_digits}-{good_frames_count}.jpg"
+                final_filepath = os.path.join(new_output_dir, new_filename)
+                try:
+                    os.rename(good_frame_path, final_filepath)
+                    logger_callback(f"Frame salvo como: {new_filename}")
+                except OSError as e:
+                    logger_callback(f"Erro ao renomear frame bom: {e}")
+                    good_frames_count -= 1  # Desfaz o incremento se a renomeação falhar
+            else:
+                # Meta atingida, deletar os frames bons restantes deste lote
+                logger_callback(f"Meta de {num_frames} frames atingida. Descartando frame bom extra: {os.path.basename(good_frame_path)}")
+                try:
+                    os.remove(good_frame_path)
+                except OSError as e:
+                    logger_callback(f"Erro ao deletar frame extra: {e}")
 
     logger_callback(f"""
 Processo de extração concluído.
@@ -457,6 +466,27 @@ DARK_STYLESHEET = """
         background-color: rgb(235, 60, 75);
     }
 
+    QCheckBox {
+        spacing: 10px;
+    }
+    QCheckBox::indicator {
+        width: 18px;
+        height: 18px;
+        border-radius: 4px;
+        border: 2px solid rgb(85, 85, 85);
+        background-color: transparent;
+    }
+    QCheckBox::indicator:hover {
+        border-color: rgb(194, 54, 54);
+    }
+    QCheckBox::indicator:checked {
+        background-color: rgb(194, 54, 54);
+        border-color: rgb(194, 54, 54);
+    }
+    QCheckBox::indicator:checked:hover {
+        background-color: rgb(224, 64, 64);
+        border-color: rgb(224, 64, 64);
+    }
 """
 
 class Worker(QObject):
@@ -528,9 +558,14 @@ class App(QMainWindow):
         if self.completed_icon.isNull():
             print("Erro: Não foi possível carregar o ícone check_circle.svg")
 
+        self.keras_checkbox = QCheckBox("Carregar modelo Keras") 
         self.create_widgets()
         self.load_paths()
         self.check_ffmpeg_tools_on_startup()
+
+    def toggle_keras_input_visibility(self, checked):
+        self.keras_file_widget.setVisible(checked)
+        self.save_paths()
 
     def load_paths(self):
         try:
@@ -538,6 +573,7 @@ class App(QMainWindow):
                 config = json.load(f)
                 self.output_dir_input.setText(config.get("output_dir", ""))
                 self.keras_file_input.setText(config.get("keras_file_path", ""))
+                self.keras_checkbox.setChecked(config.get("load_keras_model", True))
         except (FileNotFoundError, json.JSONDecodeError):
             pass
 
@@ -550,9 +586,14 @@ class App(QMainWindow):
 
         config["output_dir"] = self.output_dir_input.text()
         config["keras_file_path"] = self.keras_file_input.text()
+        config["load_keras_model"] = self.keras_checkbox.isChecked()
 
         with open("config.json", "w") as f:
             json.dump(config, f, indent=4)
+
+    def toggle_keras_input_visibility(self, checked):
+        self.keras_file_widget.setVisible(checked)
+        self.save_paths()
 
     def create_widgets(self):
         # --- Layout Superior (Fila e Log) ---
@@ -621,14 +662,22 @@ class App(QMainWindow):
         self.layout.addLayout(top_layout)
 
         # --- Caminho do Arquivo Keras ---
-        keras_file_layout = QHBoxLayout()
+        keras_layout = QVBoxLayout()
+        self.keras_checkbox = QCheckBox("Carregar modelo Keras")
+        self.keras_checkbox.toggled.connect(self.toggle_keras_input_visibility)
+        keras_layout.addWidget(self.keras_checkbox)
+
+        self.keras_file_widget = QWidget()
+        keras_file_layout = QHBoxLayout(self.keras_file_widget)
+        keras_file_layout.setContentsMargins(0,0,0,0)
         keras_file_layout.addWidget(QLabel("Arquivo Keras:"))
         self.keras_file_input = QLineEdit()
         keras_file_layout.addWidget(self.keras_file_input)
-        browse_keras_btn = QPushButton("Procurar...")
-        browse_keras_btn.clicked.connect(self.browse_keras_file)
-        keras_file_layout.addWidget(browse_keras_btn)
-        self.layout.addLayout(keras_file_layout)
+        self.browse_keras_btn = QPushButton("Procurar...")
+        self.browse_keras_btn.clicked.connect(self.browse_keras_file)
+        keras_file_layout.addWidget(self.browse_keras_btn)
+        keras_layout.addWidget(self.keras_file_widget)
+        self.layout.addLayout(keras_layout)
 
         # --- Caminho de Saída ---
         output_dir_layout = QHBoxLayout()
@@ -665,6 +714,8 @@ class App(QMainWindow):
         
         bottom_controls_layout.addLayout(frames_layout)
         self.layout.addLayout(bottom_controls_layout)
+
+        self.toggle_keras_input_visibility(self.keras_checkbox.isChecked())
 
 
     def add_videos(self):

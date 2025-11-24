@@ -1,5 +1,6 @@
 {
     "ffmpeg_bin_path": "E:/Programas/Ferramentas/ffmpeg-master-latest-win64-gpl-shared/bin",
-    "output_dir": "E:/CDC/Youtube/Thumbnail's/R6",
-    "keras_file_path": "E:/Programas/gerador_thumbnails/thumbnail_selector.keras"
+    "output_dir": "",
+    "keras_file_path": "",
+    "load_keras_model": true
 }
