@@ -30,7 +30,7 @@ if not exist "venv" (
 
 echo [3/4] Instalando/Atualizando dependencias...
 call venv\Scripts\activate
-pip install --upgrade pip
+python.exe -m pip install --upgrade pip
 pip install -r requirements.txt
 if !errorlevel! neq 0 (
     echo Erro ao instalar dependencias.
