@@ -1,10 +1,5 @@
 # -*- coding: utf-8 -*- 
 
-"""
-Este arquivo combina a lógica de extração de frames (originalmente em extrator_frame.py)
-com a interface gráfica do usuário (originalmente em gui_pyside.py).
-"""
-
 import os
 import sys
 
@@ -39,11 +34,12 @@ from PySide6.QtSvg import QSvgRenderer
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
+    if hasattr(sys, '_MEIPASS'):
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
+    else:
+        # Get the directory where the main.py file is located
+        base_path = os.path.dirname(os.path.abspath(__file__))
 
     return os.path.join(base_path, relative_path)
 
@@ -55,13 +51,10 @@ def resource_path(relative_path):
 if os.name == 'nt':
     _CREATE_NO_WINDOW = 0x08000000
     _startupinfo = subprocess.STARTUPINFO()
-    # Não coloque CREATE_NO_WINDOW em dwFlags (dwFlags usa STARTF_* flags).
-    # Para ocultar a janela de console, use STARTF_USESHOWWINDOW e setar wShowWindow = SW_HIDE.
     try:
         _startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         _startupinfo.wShowWindow = subprocess.SW_HIDE
     except Exception:
-        # Fallback: se algo falhar, mantenha startupinfo como None e use creationflags nas chamadas
         _startupinfo = None
 else:
     _startupinfo = None
@@ -71,7 +64,6 @@ def run_process(cmd, **kwargs):
     """Wrapper para subprocess.run que aplica startupinfo e creationflags no Windows.
     Usa o `_startupinfo` já configurado; quando necessário adiciona CREATE_NO_WINDOW como creationflags.
     """
-    # Não importar subprocess aqui; já está importado no topo
     creationflags = kwargs.pop('creationflags', None)
     if os.name == 'nt':
         # se não foi passado creationflags explicitamente, use CREATE_NO_WINDOW
@@ -117,45 +109,57 @@ def carregar_caminho_ffmpeg():
         return None
 
 def encontrar_ffmpeg_tools(caminho_custom=None):
-    """Verifica se ffmpeg e ffprobe estão disponíveis e retorna o erro se não estiverem."""
+    """Verifica se ffmpeg e ffprobe estão disponíveis e retorna os caminhos absolutos."""
     ferramentas = {"ffmpeg": None, "ffprobe": None}
     nomes = ["ffmpeg", "ffprobe"]
     error_log = []
 
-    caminho_a_verificar = caminho_custom
-
-    if not caminho_a_verificar:
-        caminho_a_verificar = carregar_caminho_ffmpeg()
-
-    if caminho_a_verificar:
+    # 1. Tenta o caminho customizado (ex: ffmpeg/bin no diretório do projeto)
+    if caminho_custom:
+        encontrou_todos = True
         for nome in nomes:
-            try:
-                exec_name = f"{nome}.exe" if os.name == 'nt' and not nome.endswith('.exe') else nome
-                full_path = os.path.join(caminho_a_verificar, exec_name)
-                if os.path.exists(full_path):
-                    run_process([full_path, '-version'], check=True, capture_output=True)
-                    ferramentas[nome] = full_path
-                else:
-                    error_log.append(f"'{exec_name}' não encontrado em '{caminho_a_verificar}'.")
-            except (subprocess.CalledProcessError, FileNotFoundError, PermissionError) as e:
-                error_log.append(f"Erro ao verificar '{nome}' em '{caminho_a_verificar}': {e}")
+            exec_name = f"{nome}.exe" if os.name == 'nt' else nome
+            full_path = os.path.join(caminho_custom, exec_name)
+            if os.path.exists(full_path):
+                ferramentas[nome] = os.path.abspath(full_path)
+            else:
+                encontrou_todos = False
+                error_log.append(f"'{exec_name}' não encontrado em '{caminho_custom}'.")
         
-        if ferramentas["ffmpeg"] and ferramentas["ffprobe"] and caminho_custom:
-            salvar_caminho_ffmpeg(caminho_custom)
-        
-        if ferramentas["ffmpeg"] and ferramentas["ffprobe"]:
-            return ferramentas, "".join(error_log)
+        if encontrou_todos:
+            return ferramentas, ""
 
-    if not (ferramentas["ffmpeg"] and ferramentas["ffprobe"]):
+    # 2. Tenta o caminho salvo no config.json (se não for o mesmo já tentado)
+    caminho_config = carregar_caminho_ffmpeg()
+    if caminho_config and caminho_config != caminho_custom:
+        encontrou_todos = True
+        temp_ferramentas = {}
         for nome in nomes:
-            if not ferramentas[nome]:
-                try:
-                    run_process([nome, '-version'], check=True, capture_output=True)
-                    ferramentas[nome] = nome
-                except (subprocess.CalledProcessError, FileNotFoundError, PermissionError) as e:
-                    error_log.append(f"'{nome}' não encontrado ou com erro no PATH do sistema: {e}")
+            exec_name = f"{nome}.exe" if os.name == 'nt' else nome
+            full_path = os.path.join(caminho_config, exec_name)
+            if os.path.exists(full_path):
+                temp_ferramentas[nome] = os.path.abspath(full_path)
+            else:
+                encontrou_todos = False
+        
+        if encontrou_todos:
+            return temp_ferramentas, ""
 
-    return ferramentas, "".join(error_log)
+    # 3. Tenta no PATH do sistema
+    ferramentas_path = {"ffmpeg": None, "ffprobe": None}
+    encontrou_no_path = True
+    for nome in nomes:
+        try:
+            # Verifica se responde no PATH
+            run_process([nome, '-version'], check=True, capture_output=True)
+            ferramentas_path[nome] = nome
+        except Exception:
+            encontrou_no_path = False
+    
+    if encontrou_no_path:
+        return ferramentas_path, ""
+
+    return ferramentas, "FFmpeg/FFprobe não encontrados."
 
 def get_video_duration(video_path, ffprobe_path='ffprobe', logger_callback=print):
     """Obtém a duração de um vídeo em segundos usando ffprobe."""
@@ -770,40 +774,29 @@ class App(QMainWindow):
     def check_ffmpeg_tools_on_startup(self):
         self.log("Verificando ferramentas FFmpeg...")
         
-        # Prioridade 1: Verificar pasta 'bin' local (para instalador)
-        # Caso 1: bin/ffmpeg.exe (padrão, dentro da pasta do app)
-        bundled_bin_path = resource_path('bin')
-        self.log(f"Tentando carregar FFmpeg da pasta local padrão: {bundled_bin_path}")
-        tools, error_msg = encontrar_ffmpeg_tools(caminho_custom=bundled_bin_path)
-
-        # Caso 2: ../bin/ffmpeg.exe (alternativo, um nível acima)
-        if not (tools.get("ffmpeg") and tools.get("ffprobe")):
-            # resource_path('.') aponta para a pasta do executável
-            alt_bundled_bin_path = os.path.abspath(os.path.join(resource_path('.'), '..', 'bin'))
-            self.log(f"Tentando carregar FFmpeg de um diretório acima: {alt_bundled_bin_path}")
-            tools, error_msg_alt = encontrar_ffmpeg_tools(caminho_custom=alt_bundled_bin_path)
-            if error_msg_alt and error_msg_alt not in error_msg:
-                error_msg += f"\n{error_msg_alt}"
-
-        # Se não encontrou em nenhum local empacotado, tenta o caminho salvo ou o PATH do sistema
-        if not (tools.get("ffmpeg") and tools.get("ffprobe")):
-            self.log("FFmpeg não encontrado nas pastas locais. Verificando caminhos salvos e PATH do sistema...")
-            tools, error_msg_fallback = encontrar_ffmpeg_tools()
-            if error_msg_fallback and error_msg_fallback not in error_msg:
-                error_msg += f"\n{error_msg_fallback}"
+        # Prioridade 1: Verificar pasta 'ffmpeg/bin' no diretório do projeto (caminho absoluto)
+        project_bin_path = resource_path(os.path.join('ffmpeg', 'bin'))
+        self.log(f"Procurando FFmpeg local em: {project_bin_path}")
+        
+        tools, error_msg = encontrar_ffmpeg_tools(caminho_custom=project_bin_path)
 
         if tools.get("ffmpeg") and tools.get("ffprobe"):
             self.ffmpeg_path = tools["ffmpeg"]
             self.ffprobe_path = tools["ffprobe"]
-            ffmpeg_dir = os.path.dirname(tools["ffmpeg"])
-            self.log(f"FFmpeg e FFprobe carregados com sucesso de: {ffmpeg_dir}")
+            self.log(f"FFmpeg encontrado com sucesso: {self.ffmpeg_path}")
+            self.log(f"FFprobe encontrado com sucesso: {self.ffprobe_path}")
         else:
-            self.log("Aviso: FFmpeg/FFprobe não encontrados em nenhum local verificado.")
-            if error_msg:
-                # Limpar mensagens duplicadas
-                errors = list(dict.fromkeys(error_msg.strip().split('\n')))
-                self.log(f"Detalhes: {' | '.join(errors)}")
-            self.prompt_for_ffmpeg_folder()
+            # Se não encontrou no local padrão, tenta no PATH do sistema ou caminho salvo
+            self.log("FFmpeg não encontrado no diretório local. Verificando alternativas...")
+            tools, error_msg_fallback = encontrar_ffmpeg_tools()
+            
+            if tools.get("ffmpeg") and tools.get("ffprobe"):
+                self.ffmpeg_path = tools["ffmpeg"]
+                self.ffprobe_path = tools["ffprobe"]
+                self.log(f"FFmpeg carregado: {self.ffmpeg_path}")
+            else:
+                self.log("Aviso: FFmpeg/FFprobe não encontrados.")
+                self.prompt_for_ffmpeg_folder()
 
     def prompt_for_ffmpeg_folder(self):
         reply = QMessageBox.question(self, "Ferramentas não encontradas", "Deseja apontar para a pasta 'bin' do FFmpeg agora?")

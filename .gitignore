@@ -1,7 +1,8 @@
 # Projeto
 **/config.json
 *.keras
-ffmpe/*
+ffmpeg/*
+*.exe
 # === Python ===
 __pycache__/
 *.py[cod]
