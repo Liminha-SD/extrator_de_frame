@@ -1,10 +1,23 @@
 #!/bin/bash
 
-echo "[1/4] Verificando instalacao do Python..."
-if ! command -v python3 &> /dev/null; then
-    echo "Python3 nao encontrado!"
-    echo "Por favor, instale o Python3 e o suporte a venv."
-    echo "Exemplo (Ubuntu/Debian): sudo apt update && sudo apt install python3 python3-venv"
+# Definição das versões utilizadas
+PYTHON_VERSION="3.12.10"
+PYSIDE6_VERSION="6.10.1"
+TENSORFLOW_VERSION="2.20.0"
+NUMPY_VERSION="2.4.1"
+
+echo "======================================================"
+echo "  Gerador de Thumbnails - Configurando Ambiente"
+echo "  Python: $PYTHON_VERSION"
+echo "  PySide6: $PYSIDE6_VERSION"
+echo "  TensorFlow: $TENSORFLOW_VERSION"
+echo "  NumPy: $NUMPY_VERSION"
+echo "======================================================"
+
+echo "[1/4] Verificando instalacao do Python $PYTHON_VERSION..."
+if ! python3 --version 2>&1 | grep -q "$PYTHON_VERSION"; then
+    echo "Python $PYTHON_VERSION nao encontrado!"
+    echo "Por favor, instale o Python $PYTHON_VERSION."
     exit 1
 fi
 
@@ -14,7 +27,6 @@ if [ ! -d "venv" ]; then
     python3 -m venv venv
     if [ $? -ne 0 ]; then
         echo "Erro ao criar ambiente virtual."
-        echo "Em sistemas Debian/Ubuntu, voce pode precisar instalar: sudo apt install python3-venv"
         exit 1
     fi
 fi
