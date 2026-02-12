@@ -1,18 +1,19 @@
 @echo off
 setlocal enabledelayedexpansion
 
-echo [1/4] Verificando instalacao do Python...
-python --version >nul 2>&1
+echo [1/4] Verificando instalacao do Python 3.12.10...
+python --version 2>nul | findstr /C:"3.12.10" >nul
 if %errorlevel% neq 0 (
-    echo Python nao encontrado! Tentando abrir o instalador via winget...
-    winget install Python.Python.3.10 --silent --accept-package-agreements --accept-source-agreements
+    echo Python 3.12.10 nao encontrado ou versao incorreta!
+    echo Tentando instalar Python 3.12.10 via winget...
+    winget install --id Python.Python.3.12 --version 3.12.10 --silent --accept-package-agreements --accept-source-agreements
     if !errorlevel! neq 0 (
-        echo Nao foi possivel instalar o Python automaticamente.
-        echo Por favor, instale o Python manualmente em https://www.python.org/
+        echo Nao foi possivel instalar o Python 3.12.10 automaticamente via winget.
+        echo Por favor, instale o Python 3.12.10 manualmente em https://www.python.org/downloads/release/python-31210/
         pause
         exit /b 1
     )
-    echo Python instalado com sucesso. Por favor, reinicie este script.
+    echo Python 3.12.10 instalado com sucesso. Por favor, reinicie este script.
     pause
     exit /b 0
 )
@@ -25,6 +26,13 @@ if not exist "venv" (
         echo Erro ao criar ambiente virtual.
         pause
         exit /b 1
+    )
+) else (
+    venv\Scripts\python.exe --version 2>nul | findstr /C:"3.12.10" >nul
+    if !errorlevel! neq 0 (
+        echo Ambiente virtual existente usa uma versao diferente do Python.
+        echo Recomenda-se deletar a pasta 'venv' e rodar este script novamente.
+        pause
     )
 )
 
