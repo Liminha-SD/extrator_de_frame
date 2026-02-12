@@ -18,16 +18,41 @@ echo ======================================================
 echo [1/5] Verificando instalacao do Python %PYTHON_VERSION%...
 python --version 2>nul | findstr /C:"%PYTHON_VERSION%" >nul
 if %errorlevel% neq 0 (
-    echo Python %PYTHON_VERSION% nao encontrado ou versao incorreta!
-    echo Tentando instalar Python %PYTHON_VERSION% via winget...
-    winget install --id Python.Python.3.12 --version %PYTHON_VERSION% --silent --accept-package-agreements --accept-source-agreements
+    echo Python %PYTHON_VERSION% nao encontrado ou versao incorreta.
+    
+    where winget >nul 2>nul
     if !errorlevel! neq 0 (
-        echo Nao foi possivel instalar o Python %PYTHON_VERSION% automaticamente via winget.
-        echo Por favor, instale o Python %PYTHON_VERSION% manualmente em https://www.python.org/downloads/release/python-31210/
+        echo Winget nao encontrado. Por favor, instale o Python manualmente:
+        echo https://www.python.org/downloads/release/python-31210/
         pause
         exit /b 1
     )
-    echo Python %PYTHON_VERSION% instalado com sucesso. Por favor, reinicie este script.
+
+    echo Tentando instalar Python %PYTHON_VERSION% via winget...
+    winget install --id Python.Python.3.12 --version %PYTHON_VERSION% --source winget --silent --accept-package-agreements --accept-source-agreements
+    
+    if !errorlevel! neq 0 (
+        echo A instalacao silenciosa falhou. Tentando instalacao interativa...
+        winget install --id Python.Python.3.12 --version %PYTHON_VERSION% --source winget --accept-package-agreements --accept-source-agreements
+    )
+
+    if !errorlevel! neq 0 (
+        echo.
+        echo ERRO: Nao foi possivel instalar o Python automaticamente.
+        echo Isso pode acontecer se a versao especifica nao estiver mais no cache do Winget
+        echo ou se houver problemas de permissao/rede.
+        echo.
+        echo Por favor, instale manualmente em: 
+        echo https://www.python.org/downloads/release/python-31210/
+        echo Marque a opcao "Add Python to PATH" durante a instalacao.
+        pause
+        exit /b 1
+    )
+    
+    echo.
+    echo Python instalado com sucesso! 
+    echo IMPORTANTE: Voce precisa fechar esta janela e abrir o start.bat novamente
+    echo para que o Windows reconheça o novo comando 'python'.
     pause
     exit /b 0
 )
