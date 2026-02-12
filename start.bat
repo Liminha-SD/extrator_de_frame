@@ -1,58 +1,44 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: Definição das versões utilizadas
-set PYTHON_VERSION=3.12.10
+:: Definição das versões das bibliotecas
 set PYSIDE6_VERSION=6.10.1
 set TENSORFLOW_VERSION=2.20.0
 set NUMPY_VERSION=2.4.1
 
 echo ======================================================
 echo   Gerador de Thumbnails - Configurando Ambiente
-echo   Python: %PYTHON_VERSION%
-echo   PySide6: %PYSIDE6_VERSION%
-echo   TensorFlow: %TENSORFLOW_VERSION%
-echo   NumPy: %NUMPY_VERSION%
+echo   Bibliotecas: PySide6, TensorFlow, NumPy
 echo ======================================================
 
-echo [1/5] Verificando instalacao do Python %PYTHON_VERSION%...
-python --version 2>nul | findstr /C:"%PYTHON_VERSION%" >nul
+echo [1/5] Verificando instalacao do Python...
+python --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo Python %PYTHON_VERSION% nao encontrado ou versao incorreta.
+    echo Python nao encontrado no PATH.
     
     where winget >nul 2>nul
     if !errorlevel! neq 0 (
-        echo Winget nao encontrado. Por favor, instale o Python manualmente:
-        echo https://www.python.org/downloads/release/python-31210/
+        echo Winget nao encontrado. Por favor, instale o Python 3 manualmente em python.org
         pause
         exit /b 1
     )
 
-    echo Tentando instalar Python %PYTHON_VERSION% via winget...
-    winget install --id Python.Python.3.12 --version %PYTHON_VERSION% --source winget --silent --accept-package-agreements --accept-source-agreements
+    echo Tentando instalar Python 3.12 via winget...
+    winget install --id Python.Python.3.12 --source winget --silent --accept-package-agreements --accept-source-agreements
     
     if !errorlevel! neq 0 (
-        echo A instalacao silenciosa falhou. Tentando instalacao interativa...
-        winget install --id Python.Python.3.12 --version %PYTHON_VERSION% --source winget --accept-package-agreements --accept-source-agreements
+        echo Falha na instalacao silenciosa. Tentando interativa...
+        winget install --id Python.Python.3.12 --source winget
     )
 
     if !errorlevel! neq 0 (
-        echo.
-        echo ERRO: Nao foi possivel instalar o Python automaticamente.
-        echo Isso pode acontecer se a versao especifica nao estiver mais no cache do Winget
-        echo ou se houver problemas de permissao/rede.
-        echo.
-        echo Por favor, instale manualmente em: 
-        echo https://www.python.org/downloads/release/python-31210/
-        echo Marque a opcao "Add Python to PATH" durante a instalacao.
+        echo Nao foi possivel instalar o Python automaticamente.
+        echo Por favor, instale manualmente: https://www.python.org/
         pause
         exit /b 1
     )
     
-    echo.
-    echo Python instalado com sucesso! 
-    echo IMPORTANTE: Voce precisa fechar esta janela e abrir o start.bat novamente
-    echo para que o Windows reconheça o novo comando 'python'.
+    echo Python instalado. Reinicie este script para atualizar o PATH.
     pause
     exit /b 0
 )
@@ -61,18 +47,10 @@ echo [2/5] Verificando instalacao do FFmpeg...
 ffmpeg -version >nul 2>&1
 if %errorlevel% neq 0 (
     if not exist "ffmpeg\bin\ffmpeg.exe" (
-        echo FFmpeg nao encontrado no sistema nem na pasta local!
-        echo Tentando instalar FFmpeg via winget...
+        echo FFmpeg nao encontrado. Tentando instalar via winget...
         winget install --id Gyan.FFmpeg --silent --accept-package-agreements --accept-source-agreements
-        if !errorlevel! neq 0 (
-            echo Nao foi possivel instalar o FFmpeg automaticamente via winget.
-            echo O programa pode nao funcionar corretamente sem o FFmpeg.
-            pause
-        ) else (
-            echo FFmpeg instalado com sucesso.
-        )
     ) else (
-        echo FFmpeg encontrado na pasta local do projeto.
+        echo FFmpeg encontrado na pasta local.
     )
 ) else (
     echo FFmpeg encontrado no sistema.
@@ -83,22 +61,15 @@ if not exist "venv" (
     echo Criando ambiente virtual...
     python -m venv venv
     if !errorlevel! neq 0 (
-        echo Erro ao criar ambiente virtual.
+        echo Erro ao criar ambiente virtual. Verifique se o modulo 'venv' esta instalado.
         pause
         exit /b 1
-    )
-) else (
-    venv\Scripts\python.exe --version 2>nul | findstr /C:"%PYTHON_VERSION%" >nul
-    if !errorlevel! neq 0 (
-        echo Ambiente virtual existente usa uma versao diferente do Python.
-        echo Recomenda-se deletar a pasta 'venv' e rodar este script novamente.
-        pause
     )
 )
 
 echo [4/5] Instalando/Atualizando dependencias...
 call venv\Scripts\activate
-python.exe -m pip install --upgrade pip
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 if !errorlevel! neq 0 (
     echo Erro ao instalar dependencias.
