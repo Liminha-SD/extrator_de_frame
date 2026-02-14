@@ -34,10 +34,5 @@ if /I "%choice%"=="s" (
     )
 )
 
-echo Iniciando main.py...
-python main.py
-
-if %ERRORLEVEL% NEQ 0 (
-    echo Ocorreu um erro durante a execucao.
-    pause
-)
+echo Processo finalizado.
+pause
