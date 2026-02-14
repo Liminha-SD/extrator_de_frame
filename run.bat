@@ -19,10 +19,19 @@ set /p choice="Deseja compilar para .exe agora? (s/n): "
 if /I "%choice%"=="s" (
     echo Compilando com PyInstaller...
     :: --noconsole para apps GUI (PySide6)
-    :: --add-data para incluir a pasta assets (formato: origem;destino)
-    :: Incluindo ffmpeg no dist
+    :: --add-data para incluir a pasta assets e ffmpeg
     pyinstaller --noconsole --onefile --add-data "assets;assets" --add-data "ffmpeg;ffmpeg" --name "ExtratorDeFrame" main.py
-    echo Compilacao concluida. O executavel esta na pasta 'dist'.
+    
+    if EXIST "dist\ExtratorDeFrame.exe" (
+        echo Movendo executavel para a raiz e limpando arquivos temporarios...
+        move /y "dist\ExtratorDeFrame.exe" "."
+        rmdir /s /q "build"
+        rmdir /s /q "dist"
+        del /q "ExtratorDeFrame.spec"
+        echo Compilacao concluida com sucesso! O 'ExtratorDeFrame.exe' esta na raiz.
+    ) ELSE (
+        echo Erro na compilacao. O executavel nao foi encontrado.
+    )
 )
 
 echo Iniciando main.py...
