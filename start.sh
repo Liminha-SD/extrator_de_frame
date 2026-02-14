@@ -1,50 +1,51 @@
 #!/bin/bash
 
-# Definição das versões utilizadas
-PYTHON_VERSION="3.12.10"
-PYSIDE6_VERSION="6.10.1"
-TENSORFLOW_VERSION="2.20.0"
-NUMPY_VERSION="2.4.1"
+# ======================================================
+# Gerador de Thumbnails - Instalador e Executor (Linux/Mac)
+# ======================================================
+APP_NAME="Gerador de Thumbnails"
+VENV_DIR="venv"
+REQS_FILE="requirements.txt"
 
 echo "======================================================"
-echo "  Gerador de Thumbnails - Configurando Ambiente"
-echo "  Python: $PYTHON_VERSION"
-echo "  PySide6: $PYSIDE6_VERSION"
-echo "  TensorFlow: $TENSORFLOW_VERSION"
-echo "  NumPy: $NUMPY_VERSION"
+echo "          $APP_NAME"
 echo "======================================================"
+echo ""
 
-echo "[1/4] Verificando instalacao do Python $PYTHON_VERSION..."
-if ! python3 --version 2>&1 | grep -q "$PYTHON_VERSION"; then
-    echo "Python $PYTHON_VERSION nao encontrado!"
-    echo "Por favor, instale o Python $PYTHON_VERSION."
+# 1. Verificar Python
+echo "[1/4] Verificando Python..."
+if ! command -v python3 &> /dev/null; then
+    echo "[ERRO] Python 3 nao encontrado. Por favor, instale o Python 3."
     exit 1
 fi
 
-echo "[2/4] Verificando ambiente virtual (venv)..."
-if [ ! -d "venv" ]; then
-    echo "Criando ambiente virtual..."
-    python3 -m venv venv
+# 2. Configurar Ambiente Virtual (venv)
+echo "[2/4] Configurando ambiente virtual..."
+if [ ! -d "$VENV_DIR" ]; then
+    echo "Criando novo ambiente virtual (venv)..."
+    python3 -m venv "$VENV_DIR"
     if [ $? -ne 0 ]; then
-        echo "Erro ao criar ambiente virtual."
+        echo "[ERRO] Falha ao criar ambiente virtual. Voce pode precisar instalar o pacote 'python3-venv'."
         exit 1
     fi
 fi
 
-echo "[3/4] Instalando/Atualizando dependencias..."
-source venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+# 3. Instalar Dependencias
+echo "[3/4] Instalando dependencias..."
+source "$VENV_DIR/bin/activate"
+python3 -m pip install --upgrade pip
+pip install -r "$REQS_FILE"
 if [ $? -ne 0 ]; then
-    echo "Erro ao instalar dependencias."
+    echo "[ERRO] Falha ao instalar dependencias."
     exit 1
 fi
 
-echo "[4/4] Iniciando o programa..."
+# 4. Executar Programa
+echo "[4/4] Iniciando $APP_NAME..."
 python3 main.py
 if [ $? -ne 0 ]; then
-    echo "O programa encerrou com erro."
-    exit 1
+    echo ""
+    echo "[AVISO] O programa encerrou com um codigo de erro ($?)."
 fi
 
 deactivate
