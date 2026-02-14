@@ -774,8 +774,16 @@ class App(QMainWindow):
     def check_ffmpeg_tools_on_startup(self):
         self.log("Verificando ferramentas FFmpeg...")
         
-        # Prioridade 1: Verificar pasta 'ffmpeg/bin' no diretório do projeto (caminho absoluto)
-        project_bin_path = resource_path(os.path.join('ffmpeg', 'bin'))
+        # Determine the base directory (where the script or exe is)
+        if hasattr(sys, '_MEIPASS'):
+            # When running as exe, look next to the exe, not inside the _MEIPASS temp folder
+            # unless ffmpeg was bundled inside. But usually it's better to keep it external.
+            # If the user wants it next to the .exe:
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        project_bin_path = os.path.join(base_dir, 'ffmpeg', 'bin')
         self.log(f"Procurando FFmpeg local em: {project_bin_path}")
         
         tools, error_msg = encontrar_ffmpeg_tools(caminho_custom=project_bin_path)

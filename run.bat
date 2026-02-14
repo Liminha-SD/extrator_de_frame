@@ -20,8 +20,8 @@ if /I "%choice%"=="s" (
     echo Compilando com PyInstaller...
     :: --noconsole para apps GUI (PySide6)
     :: --add-data para incluir a pasta assets (formato: origem;destino)
-    :: --onefile para gerar um unico arquivo .exe
-    pyinstaller --noconsole --onefile --add-data "assets;assets" --name "ExtratorDeFrame" main.py
+    :: Incluindo ffmpeg no dist
+    pyinstaller --noconsole --onefile --add-data "assets;assets" --add-data "ffmpeg;ffmpeg" --name "ExtratorDeFrame" main.py
     echo Compilacao concluida. O executavel esta na pasta 'dist'.
 )
 
