@@ -63,7 +63,7 @@ if "!INSTALADO!"=="sim" (
 if exist "ffmpeg.zip" (
     if not exist "ffmpeg" (
         echo [2/6] Descompactando ffmpeg.zip...
-        powershell -Command "Expand-Archive -Path 'ffmpeg.zip' -DestinationPath '.' -Force"
+        powershell -Command "Expand-Archive -Path 'ffmpeg.zip' -DestinationPath 'ffmpeg' -Force"
         if !ERRORLEVEL! equ 0 (
             echo [2/6] Removendo ffmpeg.zip...
             del /q "ffmpeg.zip"
