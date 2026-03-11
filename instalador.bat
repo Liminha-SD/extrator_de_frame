@@ -1,0 +1,124 @@
+@echo off
+setlocal enabledelayedexpansion
+
+:: --- Configurações ---
+set "VENV_DIR=venv"
+set "APP_NAME=extrator_de_frame"
+set "MAIN_FILE=main.py"
+set "PYTHON_VERSION=3.12.10"
+
+echo ====================================================
+echo   Configurando Ambiente via Python Manager
+echo ====================================================
+
+:: 1. Verifica se o comando 'py' existe
+where py >nul 2>&1
+if !ERRORLEVEL! neq 0 (
+    echo [ERRO] Comando 'py' nao encontrado. 
+    echo Instale o Python Manager oficial da Microsoft Store.
+    pause
+    exit /b 1
+)
+
+echo [1/6] Verificando Python !PYTHON_VERSION!...
+
+:: Tenta listar usando os tres formatos possiveis do oficial e do legado
+set "INSTALADO=nao"
+
+:: Teste 1: py list (Novo Manager)
+py list 2>nul | findstr /C:"!PYTHON_VERSION!" >nul 2>&1
+if !ERRORLEVEL! equ 0 set "INSTALADO=sim"
+
+:: Teste 2: py --list (Variacao do Novo Manager)
+if "!INSTALADO!"=="nao" (
+    py --list 2>nul | findstr /C:"!PYTHON_VERSION!" >nul 2>&1
+    if !ERRORLEVEL! equ 0 set "INSTALADO=sim"
+)
+
+:: Teste 3: py -0 (Launcher Antigo)
+if "!INSTALADO!"=="nao" (
+    py -0 2>nul | findstr /C:"!PYTHON_VERSION!" >nul 2>&1
+    if !ERRORLEVEL! equ 0 set "INSTALADO=sim"
+)
+
+if "!INSTALADO!"=="sim" (
+    echo [1/6] Python !PYTHON_VERSION! ja esta instalado.
+) else (
+    echo [1/6] Python !PYTHON_VERSION! nao encontrado. Instalando...
+    echo Executando: py install !PYTHON_VERSION!
+    
+    py install !PYTHON_VERSION!
+    
+    if !ERRORLEVEL! neq 0 (
+        echo.
+        echo [ERRO] Falha na instalacao automatica.
+        echo Se voce usa o Python Manager oficial, tente rodar no terminal:
+        echo py install !PYTHON_VERSION!
+        pause
+        exit /b 1
+    )
+)
+
+:: 2. Descompactar FFmpeg
+if exist "ffmpeg.zip" (
+    if not exist "ffmpeg" (
+        echo [2/6] Descompactando ffmpeg.zip...
+        powershell -Command "Expand-Archive -Path 'ffmpeg.zip' -DestinationPath '.' -Force"
+        if !ERRORLEVEL! equ 0 (
+            echo [2/6] Removendo ffmpeg.zip...
+            del /q "ffmpeg.zip"
+        ) else (
+            echo [AVISO] Falha ao descompactar ffmpeg.zip automaticamente.
+        )
+    ) else (
+        echo [2/6] Pasta 'ffmpeg' ja existe, pulando descompactacao.
+    )
+) else (
+    echo [2/6] Aviso: ffmpeg.zip nao encontrado para descompactacao.
+)
+
+:: 3. Criacao da Venv
+if not exist "!VENV_DIR!\Scripts\activate.bat" (
+    echo [3/6] Criando ambiente virtual com Python !PYTHON_VERSION!...
+    py -!PYTHON_VERSION! -m venv !VENV_DIR!
+    
+    if !ERRORLEVEL! neq 0 (
+        echo [ERRO] Falha ao criar ambiente virtual com 'py -!PYTHON_VERSION!'.
+        pause
+        exit /b 1
+    )
+) else (
+    echo [3/6] Ambiente virtual ja existe.
+)
+
+echo [4/6] Ativando ambiente e instalando dependencias...
+call !VENV_DIR!\Scripts\activate.bat
+python -m pip install --upgrade pip --quiet
+pip install -r requirements.txt --quiet
+
+echo [5/6] Compilando !APP_NAME!...
+pyinstaller --noconsole --onefile --collect-all tensorflow --name "!APP_NAME!" "!MAIN_FILE!"
+
+if exist "dist\!APP_NAME!.exe" (
+    echo [6/6] Finalizando...
+    move /y "dist\!APP_NAME!.exe" "." >nul
+    if exist "build" rmdir /s /q "build"
+    if exist "dist" rmdir /s /q "dist"
+    if exist "!APP_NAME!.spec" del /q "!APP_NAME!.spec"
+    
+    echo [EXTRA] Removendo ambiente virtual...
+    call deactivate >nul 2>&1
+    if exist "!VENV_DIR!" rmdir /s /q "!VENV_DIR!"
+
+    echo ====================================================
+    echo   SUCESSO !APP_NAME!.exe pronto na raiz.
+    echo ====================================================
+) else (
+    echo [ERRO] Falha na compilacao. Verifique se o PyInstaller funcionou.
+    call deactivate >nul 2>&1
+    if exist "!VENV_DIR!" rmdir /s /q "!VENV_DIR!"
+)
+
+echo.
+echo Pressione qualquer tecla para fechar...
+pause >nul
