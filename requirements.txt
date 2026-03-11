@@ -1,4 +1,4 @@
-PySide6
+pyside6
 tensorflow
 numpy
 Pillow
