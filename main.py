@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtSvg import QSvgRenderer
+from dark_theme import apply_theme, COLORS, set_default_font
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -354,144 +355,78 @@ Salvos em: {os.path.abspath(new_output_dir)}
 # --- Interface Gráfica (do gui_pyside.py) ---
 # ==============================================================================
 
-DARK_STYLESHEET = """
-    QWidget {
-        background-color: rgb(46, 46, 46);
-        color: rgb(255, 255, 255);
-    }
-    QLineEdit {
-        background-color: rgb(62, 62, 62);
-        border: 1px solid rgb(62, 62, 62);
-        padding: 5;
-        border-radius: 8px;
-    }
-    QLineEdit:hover {
-        border: 1px solid rgb(194, 54, 54);
-    }
-    QPushButton {
-        background-color: rgb(85, 85, 85);
-        border: none;
-        padding: 5;
-        border-radius: 8px;
-    }
-    QPushButton:hover {
-        background-color: rgb(194, 54, 54);
-    }
-    QPushButton:pressed {
-        background-color: rgb(224, 64, 64);
-    }
-    QTextEdit {
-        background-color: rgb(30, 30, 30);
-        border: 2px solid transparent;
-        border-radius: 8px;
-    }
-    QTextEdit:hover {
-        border: 2px solid rgb(194, 54, 54);
-    }
-    QLabel {
-        background-color: rgb(46, 46, 46);
-    }
-    QSlider::groove:horizontal {
-        border: none;
-        background: rgb(255, 255, 255);
-        height: 10;
-        border-radius: 4;
-    }
-    QSlider::handle:horizontal {
-        background: rgb(194, 54, 54);
-        border: none;
-        width: 18;
-        margin: -2 0;
-        border-radius: 4;
-    }
-    QListWidget {
-        background-color: rgb(62, 62, 62);
-        border: 2px solid transparent;
-        border-radius: 8px;
-    }
-    QListWidget:hover {
-        border: 2px solid rgb(194, 54, 54);
-    }
-    QScrollBar:vertical {
-        border: none;
-        background: rgb(46, 46, 46);
-        width: 12px;
-        margin: 0px 0px 0px 0px;
-    }
-    QScrollBar::handle:vertical {
-        background: rgb(85, 85, 85);
-        min-height: 20px;
-        border-radius: 6px;
-    }
-    QScrollBar::handle:vertical:hover {
-        background: rgb(194, 54, 54);
-    }
-    QScrollBar::handle:vertical:pressed {
-        background: rgb(224, 64, 64);
-    }
-    QScrollBar:horizontal {
-        border: none;
-        background: rgb(46, 46, 46);
-        height: 12px;
-        margin: 0px 0px 0px 0px;
-    }
-    QScrollBar::handle:horizontal {
-        background: rgb(85, 85, 85);
-        min-width: 20px;
-        border-radius: 6px;
-    }
-    QScrollBar::handle:horizontal:hover {
-        background: rgb(194, 54, 54);
-    }
-    QScrollBar::handle:horizontal:pressed {
-        background: rgb(224, 64, 64);
-    }
-    QScrollBar::add-line, QScrollBar::sub-line {
-        background: none;
-        border: none;
-    }
-    QScrollBar::add-page, QScrollBar::sub-page {
-        background: none;
-    }
-    QPushButton#start_stop_button {
+EXTRA_STYLESHEET = f"""
+    QListWidget[drag_active="true"] {{
+        border: 2px solid {COLORS['accent']};
+        background-color: #050D14;
+    }}
+    QPushButton#start_stop_button {{
         font-weight: bold;
         color: white;
-    }
-    QPushButton#start_stop_button[state="start"] {
-        background-color: rgb(40, 167, 69);
-    }
-    QPushButton#start_stop_button[state="start"]:hover {
-        background-color: rgb(45, 180, 75);
-    }
-    QPushButton#start_stop_button[state="stop"] {
-        background-color: rgb(220, 53, 69);
-    }
-    QPushButton#start_stop_button[state="stop"]:hover {
-        background-color: rgb(235, 60, 75);
-    }
-
-    QCheckBox {
-        spacing: 10px;
-    }
-    QCheckBox::indicator {
-        width: 18px;
-        height: 18px;
-        border-radius: 4px;
-        border: 2px solid rgb(85, 85, 85);
-        background-color: transparent;
-    }
-    QCheckBox::indicator:hover {
-        border-color: rgb(194, 54, 54);
-    }
-    QCheckBox::indicator:checked {
-        background-color: rgb(194, 54, 54);
-        border-color: rgb(194, 54, 54);
-    }
-    QCheckBox::indicator:checked:hover {
-        background-color: rgb(224, 64, 64);
-        border-color: rgb(224, 64, 64);
-    }
+    }}
+    QPushButton#start_stop_button[state="start"] {{
+        background-color: #28A745;
+    }}
+    QPushButton#start_stop_button[state="start"]:hover {{
+        background-color: #2DBD4B;
+    }}
+    QPushButton#start_stop_button[state="stop"] {{
+        background-color: #DC3545;
+    }}
+    QPushButton#start_stop_button[state="stop"]:hover {{
+        background-color: #EB3C4B;
+    }}
 """
+
+class VideoDropList(QListWidget):
+    """QListWidget com suporte a drag-and-drop de arquivos de vídeo."""
+
+    VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v'}
+    files_dropped = Signal(list)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+
+    def _video_paths_from_event(self, event):
+        paths = []
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    path = url.toLocalFile()
+                    if os.path.splitext(path)[1].lower() in self.VIDEO_EXTENSIONS:
+                        paths.append(path)
+        return paths
+
+    def dragEnterEvent(self, event):
+        if self._video_paths_from_event(event):
+            self.setProperty("drag_active", True)
+            self.style().polish(self)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if self._video_paths_from_event(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self.setProperty("drag_active", False)
+        self.style().polish(self)
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        self.setProperty("drag_active", False)
+        self.style().polish(self)
+        paths = self._video_paths_from_event(event)
+        if paths:
+            self.files_dropped.emit(paths)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
 
 class Worker(QObject):
     log_signal = Signal(str)
@@ -526,7 +461,7 @@ class App(QMainWindow):
 
         self.setWindowTitle("Extrator de Frames")
         self.setGeometry(100, 100, 800, 600)
-        self.setStyleSheet(DARK_STYLESHEET)
+        self.setStyleSheet(EXTRA_STYLESHEET)
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -623,7 +558,8 @@ class App(QMainWindow):
         grid_layout = QGridLayout(list_container)
         grid_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.video_list_widget = QListWidget()
+        self.video_list_widget = VideoDropList()
+        self.video_list_widget.files_dropped.connect(self.add_videos_from_paths)
         grid_layout.addWidget(self.video_list_widget, 0, 0)
 
         # Container para os botões
@@ -723,11 +659,17 @@ class App(QMainWindow):
 
 
     def add_videos(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, "Selecione os arquivos de vídeo", "", "Arquivos de Vídeo (*.mp4 *.avi *.mkv *.mov);;Todos os arquivos (*.*)")
+        paths, _ = QFileDialog.getOpenFileNames(self, "Selecione os arquivos de vídeo", "", "Arquivos de Vídeo (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm *.m4v);;Todos os arquivos (*.*)")
         if paths:
-            for path in paths:
+            self.add_videos_from_paths(paths)
+
+    def add_videos_from_paths(self, paths):
+        existing = {self.video_list_widget.item(i).text() for i in range(self.video_list_widget.count())}
+        for path in paths:
+            if path not in existing:
                 item = QListWidgetItem(self.pending_icon, path)
                 self.video_list_widget.addItem(item)
+                existing.add(path)
 
     def remove_selected_video(self):
         for item in self.video_list_widget.selectedItems():
@@ -940,6 +882,9 @@ if __name__ == "__main__":
         QApplication.addLibraryPath(os.path.join(pyside6_path, "Qt", "plugins", "imageformats"))
     except ImportError:
         pass
+
+    apply_theme(app)
+    set_default_font(app)
 
     window = App()
     window.show()
